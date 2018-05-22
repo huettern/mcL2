@@ -31,6 +31,7 @@
 #include "../SineTable.h"
 #include "../PRNGenerator.h"
 #include "../ShapingTable.h"
+#include "FIR.h"
 
 
 /**************************************************************************
@@ -42,6 +43,7 @@ volatile int8_t mode = 0;
 
 bool updateMode(void);
 void psk31Mod(bool inBit, fractional* txLeft, fractional* txRight);
+void firFilter(fractional *inData, fractional *outData);
 
 /**************************************************************************
  * User Public Functions
@@ -62,8 +64,8 @@ void user_init()
 void user_mainLoop()
 {
     if (updateMode()) {
-        led_setColour(LED2, mode & 0x01 ? 255 : 0, 0, 0);
-        led_setColour(LED1, (mode >> 1) & 0x01 ? 255 : 0, 0, 0);
+        led_setColour(LED2, 0, 0, mode & 0x01 ? 10 : 0);
+        led_setColour(LED1, 0, 0, (mode >> 1) & 0x01 ? 10 : 0);
     }
 
 }
@@ -132,6 +134,10 @@ void user_processData(fractional *sourceBuffer, fractional *targetBuffer)
             
             
             psk31Mod(inBit, txLeft, txRight);
+            break;
+        case 3:
+            /* FIR filter */
+            firFilter(rxLeft, txLeft);
             break;
     }
 
@@ -231,4 +237,19 @@ void psk31Mod(bool inBit, fractional* txLeft, fractional* txRight)
     txRight[i] = txLeft[i];
     }
     if(!inBit) currSign = !currSign;
+}
+
+void firFilter(fractional *inData, fractional *outData)
+{
+    static FIRStruct flt;
+    static bool init = false;
+    
+    if(!init)
+    {
+        FIRStructInit(&flt,NTAPS,coefficients,COEFFS_IN_DATA,delayBuffer);
+        FIRDelayInit(&flt);
+        init = true;
+    }
+    
+    FIR(BUFFERLENGTH_DIV_2, outData, inData, &flt);
 }
