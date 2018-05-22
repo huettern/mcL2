@@ -41,6 +41,7 @@ volatile int8_t mode = 0;
 
 
 bool updateMode(void);
+void psk31Mod(bool inBit, fractional* txLeft, fractional* txRight);
 
 /**************************************************************************
  * User Public Functions
@@ -82,13 +83,7 @@ void user_processData(fractional *sourceBuffer, fractional *targetBuffer)
     static unsigned int deltaPsiSin = 0;
     static unsigned int deltaPsiCos = 16384;
     static unsigned int f = 1500;
-    static unsigned int fs = CODEC_SAMPLE_RATE;
     bool inBit;
-    static bool currSign = true;
-    static int ai = 0;
-    static int aq = 0;
-    long int aiCos = 0;
-    long int aqSin = 0;
     
     const char* text = "The quick brown fox jumps over the lazy dog 123456789";
     static int chCtr, bitCtr;
@@ -118,8 +113,8 @@ void user_processData(fractional *sourceBuffer, fractional *targetBuffer)
             
             for (i = 0; i < BUFFERLENGTH_DIV_2; i++) {
                                   
-                deltaPsiSin += 65536/fs*f;
-                deltaPsiCos += 65536/fs*f;
+                deltaPsiSin += 65536/CODEC_SAMPLE_RATE*f;
+                deltaPsiCos += 65536/CODEC_SAMPLE_RATE*f;
                 
                 txLeft[i] = SINE_TABLE[(deltaPsiSin>>4)];
                 txRight[i] = SINE_TABLE[(deltaPsiSin>>4)];
@@ -130,57 +125,13 @@ void user_processData(fractional *sourceBuffer, fractional *targetBuffer)
             /* differential BPSK */
             
             // get new bit
-//            inBit = PRNGenerator();
-//            PORTGbits.RG8 = inBit;
-            
-//            inBit = (text[chCtr]>>bitCtr)&0x01;
-//            if (++bitCtr >= 8) {
-//                bitCtr = 0;
-//                if(++chCtr >= strlen(text)) {
-//                    chCtr = 0;
-//                }
-//            }
-//            PORTGbits.RG8 = inBit;
-            
+//          inBit = PRNGenerator();
             inBit = sendArr[arrCtr++];
             arrCtr %= 4;
             PORTGbits.RG8 = inBit;
             
-            // Modulate
-            // plus 180 if inBit == 0
-            if(!inBit) {
-                
-//                if(deltaPsi > 32768)
-//                    deltaPsi = 32768 - (65536 - deltaPsi);
-//                else
-//                    deltaPsi += 32768;
-            }
             
-            
-            for (i = 0; i < BUFFERLENGTH_DIV_2; i++) {
-                if(!inBit) {
-                    if(currSign) {
-                        // High to low
-                        ai = ShapingTable01[i];
-                        aq = ShapingTable01[i];
-                    }
-                    else {
-                        // low to high
-                        ai = ShapingTable02[i];
-                        aq = ShapingTable02[i];
-                    }
-                }
-                                  
-                deltaPsiSin += 65536/fs*f;
-                deltaPsiCos += 65536/fs*f;
-                
-                aiCos = (long int)ai * SINE_TABLE[(deltaPsiCos>>4)];
-                aqSin = (long int)aq * SINE_TABLE[(deltaPsiSin>>4)];
-                
-                txLeft[i] = (fractional)((aiCos + aqSin)>>16);
-                txRight[i] = txLeft[i];
-            }
-            if(!inBit) currSign = !currSign;
+            psk31Mod(inBit, txLeft, txRight);
             break;
     }
 
@@ -233,3 +184,51 @@ bool updateMode(void)
     return modeChanged;
 }
 
+/**
+ * Fills the output buffers with psk31 modulated signal of the input bit
+ * @param txLeft
+ * @param txRight
+ */
+void psk31Mod(bool inBit, fractional* txLeft, fractional* txRight)
+{
+    uint16_t i;
+    static bool currSign = true;
+    static int ai = 0;
+    static int aq = 0;
+    long int aiCos = 0;
+    long int aqSin = 0;
+    
+    static unsigned int f = 1500;
+    
+    static unsigned int deltaPsiSin = 0;
+    static unsigned int deltaPsiCos = 16384;
+    
+    for (i = 0; i < BUFFERLENGTH_DIV_2; i++) 
+    {
+    if(!inBit) 
+    {
+        if(currSign) 
+        {
+            // High to low
+            ai = ShapingTable01[i];
+            aq = ShapingTable01[i];
+        }
+        else 
+        {
+            // low to high
+            ai = ShapingTable02[i];
+            aq = ShapingTable02[i];
+        }
+    }
+
+    deltaPsiSin += 65536/CODEC_SAMPLE_RATE*f;
+    deltaPsiCos += 65536/CODEC_SAMPLE_RATE*f;
+
+    aiCos = (long int)ai * SINE_TABLE[(deltaPsiCos>>4)];
+    aqSin = (long int)aq * SINE_TABLE[(deltaPsiSin>>4)];
+
+    txLeft[i] = (fractional)((aiCos + aqSin)>>16);
+    txRight[i] = txLeft[i];
+    }
+    if(!inBit) currSign = !currSign;
+}
