@@ -1,10 +1,10 @@
 
 %%
-Fc = 400;
-Fstop = 1000;
-Fs = 8000;
+Fc = 15.625;
+Fstop = 31.25;
+Fs = 500;
 
-Ntaps = 33;
+Ntaps = 79;
 order = Ntaps - 1;
 
 Wnc = Fc/Fs*2;
@@ -12,7 +12,10 @@ Wns = Fstop/Fs*2;
 
 Wn = Fstop/Fs*2;
 % coeff = fir1(order,Wn);
-coeff = firls(order, [0 Wnc Wns 1], [1 1 0 0]);
+% FIR least square
+% coeff = firls(order, [0 Wnc Wns 1], [1 1 0 0]);
+% Equiripple
+coeff = firpm(order, [0 Wnc Wns 1], [1 1 0 0]);
 
 h=fvtool(coeff,'Fs',Fs);
 

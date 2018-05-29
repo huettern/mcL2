@@ -111,9 +111,7 @@ void user_processData(fractional *sourceBuffer, fractional *targetBuffer)
             }
             break;
         case 1:
-            /* Generate 400Hz sine */
-            
-            
+            /* Generate 1500Hz sine */
             for (i = 0; i < BUFFERLENGTH_DIV_2; i++) {
                                   
                 deltaPsiSin += 65536/CODEC_SAMPLE_RATE*f;
@@ -260,7 +258,7 @@ void firFilter(fractional *inData, fractional *outData)
 void psk31demod(fractional *inData, fractional *outData)
 {
     int i;
-    static FIRStruct fltDec11,fltDec12, fltDec21, fltDec22;
+    static FIRStruct fltDec11,fltDec12, fltDec21, fltDec22, fltMatch1, fltMatch2;
     static bool init = false;
     
     static unsigned int deltaPsiSin = 0;
@@ -273,6 +271,7 @@ void psk31demod(fractional *inData, fractional *outData)
     static int rsin[BUFFERLENGTH_DIV_2], rcos[BUFFERLENGTH_DIV_2];
     static int rsinDec1[BUFFERLENGTH_DIV_2/4], rcosDec1[BUFFERLENGTH_DIV_2/4];
     static int rsinDec2[BUFFERLENGTH_DIV_2/16], rcosDec2[BUFFERLENGTH_DIV_2/16];
+    static int rsinDec2flt[BUFFERLENGTH_DIV_2/16], rcosDec2flt[BUFFERLENGTH_DIV_2/16];
     
     if(!init)
     {
@@ -285,6 +284,11 @@ void psk31demod(fractional *inData, fractional *outData)
         FIRDelayInit(&fltDec21);
         FIRStructInit(&fltDec22,NTAPS_DEC,coefDec,COEFFS_IN_DATA,dlyBufDec22);
         FIRDelayInit(&fltDec22);
+        // Init 2 matched filter
+        FIRStructInit(&fltMatch1,NTAPS_MATCHED_FLT,coefMatchedFlt,COEFFS_IN_DATA,dlyBufMatchedFlt1);
+        FIRDelayInit(&fltMatch1);
+        FIRStructInit(&fltMatch2,NTAPS_MATCHED_FLT,coefMatchedFlt,COEFFS_IN_DATA,dlyBufMatchedFlt2);
+        FIRDelayInit(&fltMatch2);
         init = true;
     }
     
@@ -292,8 +296,8 @@ void psk31demod(fractional *inData, fractional *outData)
     for (i = 0; i < BUFFERLENGTH_DIV_2; i++) 
     {   
         // base band signals
-        deltaPsiSin += 65536/CODEC_SAMPLE_RATE*f;
-        deltaPsiCos += 65536/CODEC_SAMPLE_RATE*f;
+        deltaPsiSin += 65536*f/CODEC_SAMPLE_RATE;
+        deltaPsiCos += 65536*f/CODEC_SAMPLE_RATE;
         
         // Multiply input with base band signals
         rsin[i] = (fractional)(((long)inData[i] * (long)SINE_TABLE[(deltaPsiSin>>4)])>>15);
@@ -310,10 +314,14 @@ void psk31demod(fractional *inData, fractional *outData)
     FIRDecimate(BUFFERLENGTH_DIV_2/16, rsinDec2, rsinDec1, &fltDec12, 4);
     FIRDecimate(BUFFERLENGTH_DIV_2/16, rcosDec2, rcosDec1, &fltDec22, 4);
 
+    /* Apply matched filter */
+    FIR(BUFFERLENGTH_DIV_2/16, rsinDec2flt, rsinDec2, &fltMatch1);
+    FIR(BUFFERLENGTH_DIV_2/16, rcosDec2flt, rcosDec2, &fltMatch2);
+    
     // DEBUG: output decimated signal
     for (i = 0; i < BUFFERLENGTH_DIV_2; i++) 
     {   
-        outData[i] = rsinDec2[i/16];
+        outData[i] = rsinDec2flt[i/16];
 //        outData[i] = inData[i];
     }
     
