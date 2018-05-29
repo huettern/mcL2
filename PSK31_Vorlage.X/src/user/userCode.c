@@ -22,6 +22,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <float.h>
 #include "userConfig.h"
 #include "../globals.h"
 #include "../tlv320aic.h"
@@ -38,13 +39,14 @@
  * User Global Definitions
  ***************************************************************************/
 
-volatile int8_t mode = 0;
+volatile int8_t mode = 3;
 
 
 bool updateMode(void);
 void psk31Mod(bool inBit, fractional* txLeft, fractional* txRight);
-void psk31demod(fractional *inData, fractional *outData);
+void psk31demod(fractional *inData, fractional *txLeft, fractional *txRight);
 void firFilter(fractional *inData, fractional *outData);
+size_t findMax(size_t size, double* data);
 
 /**************************************************************************
  * User Public Functions
@@ -137,8 +139,17 @@ void user_processData(fractional *sourceBuffer, fractional *targetBuffer)
         case 3:
             /* FIR filter */
 //            firFilter(rxLeft, txLeft);
+            
+            /* modulate */
+            inBit = sendArr[arrCtr++];
+            arrCtr %= 4;
+            psk31Mod(inBit, txLeft, txRight);
+//            psk31Mod(PRNGenerator(), txLeft, txRight);
+            
+            
             /* PSK31 demod */
-            psk31demod(rxLeft, txLeft);
+//            psk31demod(rxLeft, txLeft);
+            psk31demod(txRight, txLeft, txRight);
             break;
     }
 
@@ -227,9 +238,9 @@ void psk31Mod(bool inBit, fractional* txLeft, fractional* txRight)
                 aq = ShapingTable02[i];
             }
         }
-
-        deltaPsiSin += 65536/CODEC_SAMPLE_RATE*f;
-        deltaPsiCos += 65536/CODEC_SAMPLE_RATE*f;
+        
+        deltaPsiSin += 65536*f/CODEC_SAMPLE_RATE;
+        deltaPsiCos += 65536*f/CODEC_SAMPLE_RATE;
 
         aiCos = (long int)ai * SINE_TABLE[(deltaPsiCos>>4)];
         aqSin = (long int)aq * SINE_TABLE[(deltaPsiSin>>4)];
@@ -255,7 +266,7 @@ void firFilter(fractional *inData, fractional *outData)
     FIR(BUFFERLENGTH_DIV_2, outData, inData, &flt);
 }
 
-void psk31demod(fractional *inData, fractional *outData)
+void psk31demod(fractional *inData, fractional *txLeft, fractional *txRight)
 {
     int i;
     static FIRStruct fltDec11,fltDec12, fltDec21, fltDec22, fltMatch1, fltMatch2;
@@ -272,6 +283,15 @@ void psk31demod(fractional *inData, fractional *outData)
     static int rsinDec1[BUFFERLENGTH_DIV_2/4], rcosDec1[BUFFERLENGTH_DIV_2/4];
     static int rsinDec2[BUFFERLENGTH_DIV_2/16], rcosDec2[BUFFERLENGTH_DIV_2/16];
     static int rsinDec2flt[BUFFERLENGTH_DIV_2/16], rcosDec2flt[BUFFERLENGTH_DIV_2/16];
+    
+    // Avg power
+    static double averagePower[16], power;
+    
+    // Sampling
+    size_t sampleTime;
+    
+    // decision
+    static fractional decX, decXold, decY, decYold, decReW;
     
     if(!init)
     {
@@ -318,11 +338,70 @@ void psk31demod(fractional *inData, fractional *outData)
     FIR(BUFFERLENGTH_DIV_2/16, rsinDec2flt, rsinDec2, &fltMatch1);
     FIR(BUFFERLENGTH_DIV_2/16, rcosDec2flt, rcosDec2, &fltMatch2);
     
+    /* Calculate average power and determine sampling time */
+    for (i = 0; i < BUFFERLENGTH_DIV_2/16; i++) 
+    {   
+        power = (double)Fract2Float(rsinDec2flt[i])*(double)Fract2Float(rsinDec2flt[i]) + 
+                (double)Fract2Float(rcosDec2flt[i])*(double)Fract2Float(rcosDec2flt[i]) ;
+        // Simple IIR mean filter
+        averagePower[i] = ((double)0.99)*averagePower[i] + ((double)0.01)*power;
+    }
+    sampleTime = findMax(BUFFERLENGTH_DIV_2/16, averagePower);
+    
+    /* decider */
+    decXold = decX; decYold = decY;
+    decX = rsinDec2flt[sampleTime]; decY = rcosDec2flt[sampleTime];
+    decReW = decXold*decX + decYold*decY;
+    if(decReW > 0)
+    {
+        // bd = 1
+        PORTGbits.RG8 = 1;
+    }
+    else
+    {
+        // bd = 0
+        PORTGbits.RG8 = 0;
+        
+    }
+    
     // DEBUG: output decimated signal
     for (i = 0; i < BUFFERLENGTH_DIV_2; i++) 
     {   
-        outData[i] = rsinDec2flt[i/16];
-//        outData[i] = inData[i];
+        if(i < sampleTime*16)
+            txLeft[i] = 0;
+        else
+            txLeft[i] = 30000;
+//        txLeft[i] = Float2Fract(((((double)rcosDec2flt[i/16]*(double)rcosDec2flt[i/16])) + (((double)rsinDec2flt[i/16]*(double)rsinDec2flt[i/16])))/65535.0);
+//        txLeft[i] = inData[i];
+//        txLeft[i] =  rsinDec2[i/16];
+//        txLeft[i] = rsinDec2flt[i/16];
+        txRight[i] = rcosDec2flt[i/16];
+        
+    }
+//    outData[sampleTime*16] = 100;
+    
+}
+
+/**
+ * Returns the array index with the largest value
+ * @param size
+ * @param data
+ * @return 
+ */
+size_t findMax(size_t size, double* data)
+{
+    size_t idx = 0;
+    double max = -DBL_MAX;
+    int i;
+    
+    for(i = 0; i < size; i++)
+    {
+        if(data[i] > max)
+        {
+            max = data[i];
+            idx = i;
+        }
     }
     
+    return idx;
 }
