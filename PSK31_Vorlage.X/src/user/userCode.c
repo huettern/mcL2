@@ -66,9 +66,20 @@ void user_init()
  */
 void user_mainLoop()
 {
+    uint8_t r,g,b;
+    
     if (updateMode()) {
-        led_setColour(LED2, 0, 0, mode & 0x01 ? 10 : 0);
-        led_setColour(LED1, 0, 0, (mode >> 1) & 0x01 ? 10 : 0);
+//        led_setColour(LED2, 0, 0, mode & 0x01 ? 10 : 0);
+//        led_setColour(LED1, 0, 0, (mode >> 1) & 0x01 ? 10 : 0);
+        
+        r = mode & 0x01 ? 100 : 0;
+        g = mode & 0x01 ? 10 : 0;
+        b = mode & 0x01 ? 12 : 0;
+        led_setColour(LED2, r, g, b);
+        r = (mode >> 1) & 0x01 ? 100 : 0;
+        g = (mode >> 1) & 0x01 ? 10 : 0;
+        b = (mode >> 1) & 0x01 ? 12 : 0;
+        led_setColour(LED1, r, g, b);
     }
 
 }
@@ -93,7 +104,7 @@ void user_processData(fractional *sourceBuffer, fractional *targetBuffer)
     const char* text = "The quick brown fox jumps over the lazy dog 123456789";
     static int chCtr, bitCtr;
     
-    const int sendArr[4] = {0,0,1,1};
+    const int sendArr[4] = {0,0,0,1};
     static int arrCtr;
     
     // copy sourceBuffer to leftSignalBuffer and rightSignalBuffer
@@ -149,7 +160,7 @@ void user_processData(fractional *sourceBuffer, fractional *targetBuffer)
             
             /* PSK31 demod */
 //            psk31demod(rxLeft, txLeft);
-            psk31demod(txRight, txLeft, txRight);
+            psk31demod(rxLeft, txLeft, txRight);
             break;
     }
 
@@ -291,7 +302,7 @@ void psk31demod(fractional *inData, fractional *txLeft, fractional *txRight)
     size_t sampleTime;
     
     // decision
-    static fractional decX, decXold, decY, decYold, decReW;
+    static double decX, decXold, decY, decYold, decReW;
     
     if(!init)
     {
@@ -371,11 +382,13 @@ void psk31demod(fractional *inData, fractional *txLeft, fractional *txRight)
             txLeft[i] = 0;
         else
             txLeft[i] = 30000;
+        
 //        txLeft[i] = Float2Fract(((((double)rcosDec2flt[i/16]*(double)rcosDec2flt[i/16])) + (((double)rsinDec2flt[i/16]*(double)rsinDec2flt[i/16])))/65535.0);
 //        txLeft[i] = inData[i];
 //        txLeft[i] =  rsinDec2[i/16];
 //        txLeft[i] = rsinDec2flt[i/16];
         txRight[i] = rcosDec2flt[i/16];
+//        txLeft[i] = rsinDec2flt[i/16];
         
     }
 //    outData[sampleTime*16] = 100;
